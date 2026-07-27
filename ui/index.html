@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bench UI</title>
+  <style>
+    :root {
+      --bg: #f3f1ec;
+      --ink: #1c1b19;
+      --muted: #5c5852;
+      --line: #d4cfc4;
+      --accent: #1f6b4a;
+      --panel: #fffcf7;
+      --warn: #8a3b12;
+      --focus: #2a2a28;
+    }
+
+    body.app-mongo {
+      --accent: #1f4f7a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font: 15px/1.45 "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 0%, #fff8e8 0%, transparent 42%),
+        linear-gradient(180deg, #efebe3 0%, var(--bg) 40%);
+      min-height: 100vh;
+    }
+
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 1.5rem 1rem 3rem;
+    }
+
+    h1 {
+      font: 600 1.55rem/1.2 "IBM Plex Sans", sans-serif;
+      margin: 0 0 0.25rem;
+      letter-spacing: -0.02em;
+    }
+
+    .lead {
+      color: var(--muted);
+      margin: 0 0 1.1rem;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--accent);
+      border-radius: 10px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.05rem;
+    }
+
+    label {
+      display: grid;
+      gap: 0.25rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-bottom: 0.65rem;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      font: inherit;
+      color: var(--ink);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.45rem 0.55rem;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid var(--focus);
+      outline-offset: 1px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.65rem;
+    }
+
+    @media (min-width: 560px) {
+      .row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .row.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-top: 0.35rem;
+    }
+
+    button {
+      font: 600 0.92rem/1 "IBM Plex Sans", sans-serif;
+      border: 0;
+      border-radius: 6px;
+      padding: 0.55rem 0.85rem;
+      cursor: pointer;
+      color: #fff;
+      background: var(--accent);
+    }
+
+    button.ghost {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-left: auto;
+    }
+
+    .dot {
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      background: #b0aaa0;
+    }
+
+    .dot.ok { background: #2f9e62; }
+    .dot.bad { background: #c0392b; }
+
+    #out {
+      width: 100%;
+      min-height: 240px;
+      font: 13px/1.4 ui-monospace, "Cascadia Code", monospace;
+      white-space: pre-wrap;
+      resize: vertical;
+    }
+
+    .note {
+      margin: 0.75rem 0 0;
+      font-size: 0.82rem;
+      color: var(--warn);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.65rem;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Bench UI — <span id="appTitle">…</span></h1>
+  <p class="lead">
+    Запросы идут только на это приложение (<code id="originLabel"></code>).
+    Второй стек поднимай отдельно и открывай его UI.
+  </p>
+
+  <section>
+    <div class="toolbar">
+      <h2 style="margin:0">Действия</h2>
+      <span class="status"><span id="dot" class="dot"></span><span id="statusLabel">—</span></span>
+    </div>
+
+    <label>storageCase
+      <select id="storageCase"></select>
+    </label>
+    <label>dataDir (абсолютный путь к tags.jsonl / products.jsonl)
+      <input id="dataDir" placeholder="/home/.../postgrvsmongo/data/v10k">
+    </label>
+
+    <div class="row four">
+      <label>maxProductId
+        <input id="maxProductId" type="number" value="10000" min="1">
+      </label>
+      <label>tagCount
+        <input id="tagCount" type="number" value="5000" min="1">
+      </label>
+      <label>pageSize
+        <input id="pageSize" type="number" value="50" min="1">
+      </label>
+      <label>topN
+        <input id="topN" type="number" value="20" min="1">
+      </label>
+    </div>
+    <div class="row four">
+      <label>concurrency (≤ 32)
+        <input id="concurrency" type="number" value="8" min="1" max="32">
+      </label>
+      <label>warmupSeconds
+        <input id="warmupSeconds" type="number" value="10" min="0">
+      </label>
+      <label>measureSeconds
+        <input id="measureSeconds" type="number" value="60" min="1">
+      </label>
+      <label>operation
+        <select id="operation">
+          <option value="FIND_BY_TAG">FIND_BY_TAG</option>
+          <option value="FIND_BY_ID">FIND_BY_ID</option>
+          <option value="UPDATE_TAG">UPDATE_TAG</option>
+          <option value="DELETE_BY_TAG">DELETE_BY_TAG</option>
+          <option value="AGG_COUNT_BY_TAG">AGG_COUNT_BY_TAG</option>
+          <option value="AGG_TOP_TAGS">AGG_TOP_TAGS</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <label>tag (пусто = случайный)
+        <input id="tag">
+      </label>
+      <label>productId (пусто = случайный)
+        <input id="productId" type="number">
+      </label>
+    </div>
+    <div class="row">
+      <label>rebuildIndexes
+        <select id="rebuildIndexes">
+          <option value="true" selected>true</option>
+          <option value="false">false</option>
+        </select>
+      </label>
+      <label>clearBeforeLoad
+        <select id="clearBeforeLoad">
+          <option value="true" selected>true</option>
+          <option value="false">false</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button class="ghost" type="button" data-action="ping">Ping</button>
+      <button type="button" data-action="load">Load</button>
+      <button type="button" data-action="bench">Bench run</button>
+    </div>
+    <p class="note">Postgres и Mongo нагружай по очереди — не одновременно.</p>
+  </section>
+
+  <section>
+    <div class="toolbar">
+      <h2 style="margin:0">Ответ</h2>
+      <button class="ghost" type="button" id="clearOut">Очистить</button>
+    </div>
+    <textarea id="out" readonly placeholder="JSON ответа или ошибка"></textarea>
+  </section>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const BASE = ""; // same-origin
+  const STORAGE_KEY = "bench-ui-local-v1";
+
+  const CASES = {
+    postgres: ["PG_NORM", "PG_JSON"],
+    mongo: ["MONGO", "MONGO_LOOKUP"]
+  };
+
+  let appKind = null;
+
+  function loadSaved() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const data = JSON.parse(raw);
+      Object.entries(data).forEach(([id, value]) => {
+        const el = $(id);
+        if (el && value != null && id !== "storageCase") {
+          el.value = value;
+        }
+      });
+      if (data.storageCase && appKind) {
+        const allowed = CASES[appKind] || [];
+        if (allowed.includes(data.storageCase)) {
+          $("storageCase").value = data.storageCase;
+        }
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function saveFields() {
+    const ids = [
+      "dataDir", "maxProductId", "tagCount", "pageSize", "topN",
+      "concurrency", "warmupSeconds", "measureSeconds", "operation",
+      "tag", "productId", "rebuildIndexes", "clearBeforeLoad", "storageCase"
+    ];
+    const data = {};
+    ids.forEach((id) => {
+      data[id] = $(id).value;
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }
+
+  function fillCases(kind) {
+    const select = $("storageCase");
+    select.innerHTML = "";
+    (CASES[kind] || []).forEach((value) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = value;
+      select.appendChild(opt);
+    });
+  }
+
+  function applyApp(kind, label) {
+    appKind = kind;
+    document.body.classList.toggle("app-mongo", kind === "mongo");
+    $("appTitle").textContent = label;
+    document.title = "Bench UI — " + label;
+    fillCases(kind);
+    loadSaved();
+  }
+
+  function setBusy(busy) {
+    document.querySelectorAll("button[data-action]").forEach((btn) => {
+      btn.disabled = busy;
+    });
+  }
+
+  function print(title, payload) {
+    const stamp = new Date().toISOString();
+    const body = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    $("out").value = `[${stamp}] ${title}\n${body}\n`;
+  }
+
+  async function request(method, path, body) {
+    const opts = {
+      method,
+      headers: { Accept: "application/json" }
+    };
+    if (body !== undefined) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(BASE + path, opts);
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch (_) {
+      json = text;
+    }
+    if (!res.ok) {
+      const err = new Error(
+        typeof json === "string" ? json : (json && (json.message || json.error)) || res.statusText
+      );
+      err.status = res.status;
+      err.payload = json;
+      throw err;
+    }
+    return json;
+  }
+
+  async function detectApp() {
+    $("originLabel").textContent = window.location.origin;
+    try {
+      const json = await request("GET", "/api/ping");
+      const kind = json.app === "mongo" ? "mongo" : "postgres";
+      applyApp(kind, kind === "mongo" ? "Mongo" : "Postgres");
+      $("dot").className = "dot ok";
+      $("statusLabel").textContent = "ok (" + json.app + ")";
+      print("GET /api/ping", json);
+    } catch (e) {
+      // fallback by port
+      const port = window.location.port;
+      const kind = port === "8082" ? "mongo" : "postgres";
+      applyApp(kind, kind === "mongo" ? "Mongo" : "Postgres");
+      $("dot").className = "dot bad";
+      $("statusLabel").textContent = "down";
+      print("GET /api/ping — ошибка", e.payload || { message: e.message });
+    }
+  }
+
+  function buildLoadBody() {
+    const dataDir = $("dataDir").value.trim();
+    if (!dataDir) {
+      throw new Error("Укажи dataDir — абсолютный путь к каталогу датасета");
+    }
+    return {
+      dataDir,
+      storageCase: $("storageCase").value,
+      rebuildIndexes: $("rebuildIndexes").value === "true",
+      clearBeforeLoad: $("clearBeforeLoad").value === "true"
+    };
+  }
+
+  function buildBenchBody() {
+    const tag = $("tag").value.trim();
+    const productIdRaw = $("productId").value.trim();
+    const body = {
+      storageCase: $("storageCase").value,
+      operation: $("operation").value,
+      concurrency: Number($("concurrency").value),
+      warmupSeconds: Number($("warmupSeconds").value),
+      measureSeconds: Number($("measureSeconds").value),
+      pageSize: Number($("pageSize").value),
+      topN: Number($("topN").value),
+      maxProductId: Number($("maxProductId").value),
+      tagCount: Number($("tagCount").value)
+    };
+    if (tag) {
+      body.tag = tag;
+    }
+    if (productIdRaw) {
+      body.productId = Number(productIdRaw);
+    }
+    return body;
+  }
+
+  async function handleAction(action) {
+    saveFields();
+    setBusy(true);
+    try {
+      if (action === "ping") {
+        const json = await request("GET", "/api/ping");
+        $("dot").className = "dot ok";
+        $("statusLabel").textContent = "ok (" + json.app + ")";
+        print("GET /api/ping", json);
+      } else if (action === "load") {
+        const body = buildLoadBody();
+        print("POST /api/data/load …", body);
+        const json = await request("POST", "/api/data/load", body);
+        print("POST /api/data/load", json);
+      } else if (action === "bench") {
+        const body = buildBenchBody();
+        print("POST /api/bench/run … (warmup + measure)", body);
+        const json = await request("POST", "/api/bench/run", body);
+        print("POST /api/bench/run", json);
+      }
+    } catch (e) {
+      print("Ошибка " + action, e.payload || { message: e.message, status: e.status });
+      if (action === "ping") {
+        $("dot").className = "dot bad";
+        $("statusLabel").textContent = "down";
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  document.querySelectorAll("button[data-action]").forEach((btn) => {
+    btn.addEventListener("click", () => handleAction(btn.dataset.action));
+  });
+
+  $("clearOut").addEventListener("click", () => {
+    $("out").value = "";
+  });
+
+  [
+    "dataDir", "maxProductId", "tagCount", "pageSize", "topN",
+    "concurrency", "warmupSeconds", "measureSeconds", "operation",
+    "tag", "productId", "rebuildIndexes", "clearBeforeLoad", "storageCase"
+  ].forEach((id) => {
+    $(id).addEventListener("change", saveFields);
+  });
+
+  detectApp();
+})();
+</script>
+</body>
+</html>

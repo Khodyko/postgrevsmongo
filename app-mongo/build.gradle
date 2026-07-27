@@ -1,0 +1,25 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+dependencies {
+    implementation project(':common')
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+}
+
+bootJar {
+    archiveFileName = 'app-mongo.jar'
+}
+
+// Общий Bench UI из /ui → classpath:/static/
+tasks.named('processResources') {
+    from("$rootDir/ui") {
+        into 'static'
+    }
+}

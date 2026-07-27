@@ -72,7 +72,7 @@
 | Фреймворк | **Spring Boot 4.x** | HTTP API + Actuator + Micrometer |
 | Доступ к Postgres | Spring Data JPA + JDBC (пакеты / native) для тяжёлых операций | наполнение и горячий путь без лишнего шума ORM |
 | Доступ к Mongo | Spring Data MongoDB + `bulkWrite` / aggregation | симметрия с Postgres; кейс C — `$lookup` |
-| Метрики | Micrometer → `/actuator/prometheus`, гистограммы перцентилей | p50/p95/p99 |
+| Метрики | Micrometer → `/actuator/prometheus` (CPU/heap/пул); p50/p95/p99 — JSON `/api/bench/run` | ресурсы + перцентили |
 | Ресурсы | Prometheus + `docker stats` / cgroup | **% процессора и память** приложения и контейнеров БД |
 | Инфраструктура | Docker Compose: **PostgreSQL 17**, MongoDB 7, Prometheus | воспроизводимость |
 | Нагрузка | Генератор нагрузки внутри процесса (пул потоков / виртуальные потоки) | метрики и нагрузка в одной JVM |
@@ -89,50 +89,55 @@ postgrvsmongo/
   prometheus/prometheus.yml
   settings.gradle
   build.gradle
-  common/                # сценарии, генератор нагрузки, отчёт, DTO
+  common/                # DTO, DatasetReader, LoadRunner, GenerateDatasetMain
   app-postgres/          # приложение :8081  (свой build.gradle)
   app-mongo/             # приложение :8082  (свой build.gradle)
-  scripts/               # generate-dataset / наполнение / прогон / сбор метрик
+  ui/                    # Bench UI (index.html) → копируется в static/ обоих apps
+  scripts/               # generate-dataset / smoke-postgres
   data/                  # сгенерированные tags.jsonl, products.jsonl (в .gitignore)
   results/               # csv/md прогонов
   docs/BENCHMARK_PLAN.md # этот документ
 ```
 
 Два симметричных приложения с одинаковым HTTP-контрактом; отличается только хранилище. Общий код нагрузки — в `common`.  
-Сборка: **Gradle на Groovy** (`build.gradle` / `settings.gradle`).
+Сборка: **Gradle на Groovy** (`build.gradle` / `settings.gradle`).  
+UI: чистый HTML/JS (`ui/index.html`), на `/` у каждого приложения; запросы только same-origin (общий кросс-UI и CORS не нужны).
 
 ### 4.2. Схема взаимодействия
 
 ```
                     ┌──────────────────────────┐
-                    │ Генератор нагрузки       │
-                    │ (внутри приложения)      │
+                    │ Bench UI своего app (/)  │
+                    │ или curl                 │
                     └────────────┬─────────────┘
+                                 │ POST /api/data/load
                                  │ POST /api/bench/run
                  ┌───────────────┴───────────────┐
                  ▼                               ▼
         app-postgres:8081                 app-mongo:8082
-                 │                               │
-                 ▼                               ▼
-           PostgreSQL:5432                  MongoDB:27017
-                 ▲                               ▲
-                 └────────── Prometheus:9090 ────┘
-                      опрос /actuator/prometheus
+           │  LoadRunner                      │  LoadRunner
+           ▼                                  ▼
+     PostgreSQL:5432                    MongoDB:27017
+           ▲                                  ▲
+           └────────── Prometheus:9090 ───────┘
+                опрос /actuator/prometheus (CPU/heap/пул)
 ```
 
-Параллельно скрипт сбора: процессор и память JVM (Micrometer / ОС) + процессор и память контейнеров Postgres/Mongo (`docker stats`).
+Запускай и нагружай приложения **по очереди**; UI каждого смотрит только в свой API.  
+Во время прогона: CPU/heap JVM из Prometheus (Micrometer); CPU/RAM контейнеров БД — `docker stats`.  
+Латентность операций (p50/p95/p99) — в JSON-ответе `/api/bench/run` (HdrHistogram в `LoadRunner`), не в Prometheus.
 
 ### 4.3. Компоненты приложения
 
 | Компонент | Ответственность |
 |-----------|-----------------|
-| `scripts/generate-dataset` | Скрипт: создаёт `tags.jsonl` и `products.jsonl` на диске |
+| `scripts/generate-dataset` | Java CLI (`GenerateDatasetMain`): создаёт `tags.jsonl` и `products.jsonl` |
+| `ui/index.html` | кнопки Ping / Load / Bench run только для текущего приложения |
 | `DataLoadService` | Читает готовые файлы → пакетная заливка в БД, замер вставки и индексов |
 | `ScenarioService` | Операции поиска / изменения / удаления / агрегации над выбранным кейсом |
-| `BenchController` | `POST /api/bench/run`, `POST /api/data/load`, `GET /api/stats/disk` |
-| `LoadRunner` | Прогрев → измерение, число потоков, сбор таймеров → JSON/CSV |
+| `*BenchController` | `GET /api/ping`, `POST /api/data/load`, `POST /api/bench/run` |
+| `LoadRunner` | Прогрев → измерение, число потоков, HdrHistogram → JSON (`BenchRunResult`) |
 | Actuator | `health`, `prometheus`, `metrics` |
-| `ResourceSampler` / скрипт | % CPU и RSS/heap приложения; CPU/RAM контейнеров БД за окно прогона |
 
 **Фиксированные пулы:** Hikari / Mongo `max = 32` (см. §2). Не менять между вариантами хранения без пометки в отчёте.
 
@@ -283,8 +288,13 @@ db.products.aggregate([
 
 Формат:
 
-- `tags.jsonl` — `{ "id": 1, "name": "..." }` на каждый тег словаря;
-- `products.jsonl` — `{ "id": 1, "name": "...", "price": ..., "createdAt": "...", "tagIds": [..] }`.
+- `tags.jsonl` — словарь `{ "id": 1, "name": "electronics-pro-0042" }` (id в файле для lookup);
+- `products.jsonl` — `{ ..., "tags": ["electronics-pro-0042", ...] }` — **теги всегда текстовые**.
+
+При заливке в БД:
+
+- **PG_NORM / PG_JSON / MONGO** — теги остаются текстом (без id);
+- **MONGO_LOOKUP** — текст → `tagIds` по словарю (id появляются только здесь).
 
 **Генерация файлов — скрипт** (не сервис приложения), например:
 
@@ -296,15 +306,23 @@ db.products.aggregate([
   --out-dir data/v100k
 ```
 
-Реализация скрипта: Java/Python — на выбор; логика детерминированная (`tag(j, generator)`, `product(id, generator)`), чтобы при тех же аргументах файлы совпадали байт-в-байт.
+Реализация: Java CLI (`GenerateDatasetMain` в модуле `common`), запуск через `./scripts/generate-dataset.sh` / `./gradlew :common:run`.
 
-**Заливка в БД — приложение:**
+**Заливка в БД — приложение** (или кнопка **Load** в Bench UI):
 
 ```
-POST /api/data/load   { "dataDir": "data/v100k", "cases": ["A","B","C"] }
+POST /api/data/load
+{
+  "dataDir": "/abs/path/to/data/v100k",
+  "storageCase": "PG_NORM",
+  "rebuildIndexes": true,
+  "clearBeforeLoad": true
+}
 ```
 
-При загрузке для кейсов с вложенными строками тегов имена подставляются из словаря по `tagIds`.
+`storageCase`: `PG_NORM` / `PG_JSON` на `:8081`; `MONGO` / `MONGO_LOOKUP` на `:8082`.  
+`dataDir` — **абсолютный** путь к каталогу с `tags.jsonl` и `products.jsonl`.  
+При загрузке: embed/json/norm берут текст как есть; lookup мапит текст → id.
 
 **Дозаливка объёма:** скрипт дописывает в файл только новые `id`, затем `load` догружает хвост в обе СУБД из того же каталога/дополнения.
 
@@ -385,13 +403,14 @@ POST /api/data/load   { "dataDir": "data/v100k", "cases": ["A","B","C"] }
 
 | Категория | Метрики | Как снимаем |
 |-----------|---------|-------------|
-| Задержка | p50, p95, p99, max | Micrometer Timer, гистограмма |
-| Пропускная способность | операций/с за окно измерения | генератор нагрузки |
-| Ошибки | доля ошибок / таймауты | генератор нагрузки |
-| **Процессор** | % CPU приложения и контейнера БД (среднее / максимум за прогон) | Micrometer + `docker stats` |
-| **Память** | RSS/heap JVM; RSS контейнера БД (среднее / максимум) | метрики JVM + `docker stats` |
-| Диск | данные и индексы отдельно | `pg_total_relation_size`, `db.stats()` |
-| Индексы | время `CREATE INDEX` / `createIndex` | замер в `DataLoadService` |
+| Задержка | p50, p95, p99, max | JSON `/api/bench/run` (`LoadRunner` + HdrHistogram) |
+| Пропускная способность | операций/с за окно измерения | то же (`opsPerSecond`) |
+| Ошибки | число ошибок за окно | то же (`errors`) |
+| **Процессор** | % CPU приложения и контейнера БД | Prometheus `process_cpu_usage` + `docker stats` |
+| **Память** | heap JVM; RSS контейнера БД | Prometheus `jvm_memory_used_bytes` + `docker stats` |
+| Пул соединений | active / pending / timeout | Prometheus `hikaricp_*` / Mongo pool |
+| Диск | данные и индексы отдельно | поля ответа `/api/data/load` |
+| Индексы | время `CREATE INDEX` / `createIndex` | `indexMillis` в ответе `/api/data/load` |
 
 Процессор и память — колонки отчёта на каждый прогон.
 
@@ -438,7 +457,7 @@ POST /api/data/load   { "dataDir": "data/v100k", "cases": ["A","B","C"] }
                    прогрев → измерение → записать p95/p99, CPU, RAM
 ```
 
-Вызовы API (`/api/data/load`, `/api/bench/run`) к Postgres и Mongo идут **по очереди**.
+Вызовы API (`/api/data/load`, `/api/bench/run`) — через curl или Bench UI (`http://localhost:8081/` / `:8082/`) — к Postgres и Mongo идут **по очереди**.
 
 ### 8.1. Пример «на пальцах» — один объём 100K, кейс A
 
@@ -565,7 +584,7 @@ POST /api/data/load   { "dataDir": "data/v100k", "cases": ["A","B","C"] }
 2. Схемы кейсов A / B / C + индексы
 3. Скрипт `generate-dataset` + API заливки из файлов (проверка на 10K)
 4. API сценариев (поиск / изменение / удаление / агрегация), включая $lookup
-5. Генератор нагрузки + Micrometer p50/p95/p99 + сбор CPU/RAM + JSON/CSV
+5. Генератор нагрузки (`LoadRunner` + HdrHistogram) + Prometheus (CPU/heap) + `docker stats` + Bench UI
 6. Проверка стенда: 10K, потоки 1 и 8 — блок Postgres, затем блок Mongo
 7. Кейс A: лестница объёмов при одинаковой нагрузке (pg-norm против mongo)
 8. Кейс B: jsonb против mongo
@@ -606,7 +625,7 @@ POST /api/data/load   { "dataDir": "data/v100k", "cases": ["A","B","C"] }
 
 ## 12. Осознанно вне скоупа
 
-- Веб-интерфейс и Grafana (достаточно UI Prometheus и таблиц в `results`).
+- Grafana / дашборды (достаточно Bench UI, UI Prometheus и таблиц в `results`).
 - Внешние генераторы нагрузки (JMeter, Gatling) — нагрузка внутри приложения.
 - Кластер, реплики, шардирование.
 - Объёмы 10M+ / «сотни миллионов» в одном дневном прогоне.
@@ -634,7 +653,8 @@ POST /api/data/load   { "dataDir": "data/v100k", "cases": ["A","B","C"] }
 ## 14. Краткий чеклист готовности к докладу
 
 - [ ] Compose поднят (PG 17, Mongo 7), Prometheus видит оба приложения
-- [ ] Скрипт `generate-dataset` пишет файлы; заливка Postgres и Mongo из них; сверка count + выборка по `id`
+- [ ] Bench UI на `/` текущего app (8081 или 8082); заливка и прогон через UI или curl
+- [ ] Скрипт `generate-dataset` пишет файлы с полем `tags` (не `tagIds`); заливка Postgres и Mongo; сверка count + выборка по `id`
 - [ ] Индексы есть и используются на FIND_BY_TAG (A/B/C)
 - [ ] Таблица p95/p99 + CPU/RAM по кейсу A (рядом на одних ступенях)
 - [ ] Таблица кейса B (pg-json против mongo)

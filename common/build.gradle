@@ -1,0 +1,32 @@
+plugins {
+    id 'application'
+}
+
+application {
+    mainClass = 'ru.bench.common.dataset.GenerateDatasetMain'
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-json'
+    implementation 'io.micrometer:micrometer-core'
+    implementation 'org.hdrhistogram:HdrHistogram:2.2.2'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+}
+
+tasks.named('run', JavaExec) {
+    workingDir = rootProject.projectDir
+}
+
+tasks.register('generateDataset', JavaExec) {
+    group = 'bench'
+    description = 'Генерирует tags.jsonl и products.jsonl'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'ru.bench.common.dataset.GenerateDatasetMain'
+    workingDir = rootProject.projectDir
+    if (project.hasProperty('args')) {
+        args = (project.property('args') as String).split('\\s+').toList()
+    }
+}

@@ -1,0 +1,5 @@
+rootProject.name = 'postgrvsmongo'
+
+include 'common'
+include 'app-postgres'
+include 'app-mongo'

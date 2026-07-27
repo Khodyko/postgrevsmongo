@@ -1,0 +1,29 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: app-mongo
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/bench?maxPoolSize=32&minPoolSize=4
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
+
+logging:
+  level:
+    root: INFO
+    ru.bench: INFO
