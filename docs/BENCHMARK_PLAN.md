@@ -74,7 +74,7 @@
 | Доступ к Mongo | Spring Data MongoDB + `bulkWrite` / aggregation | симметрия с Postgres; кейс C — `$lookup` |
 | Метрики | Micrometer → `/actuator/prometheus` (CPU/heap/пул); p50/p95/p99 — JSON `/api/bench/run` | ресурсы + перцентили |
 | Ресурсы | Prometheus + `docker stats` / cgroup | **% процессора и память** приложения и контейнеров БД |
-| Инфраструктура | Docker Compose: **PostgreSQL 17**, MongoDB 7, Prometheus | воспроизводимость |
+| Инфраструктура | Docker Compose: **PostgreSQL 17**, MongoDB 7, Prometheus, Grafana | воспроизводимость |
 | Нагрузка | Генератор нагрузки внутри процесса (пул потоков / виртуальные потоки) | метрики и нагрузка в одной JVM |
 
 ---
@@ -87,6 +87,7 @@
 postgrvsmongo/
   docker-compose.yml
   prometheus/prometheus.yml
+  grafana/               # provisioning + dashboards (Load / FIND_* / UPDATE / AGG_*)
   settings.gradle
   build.gradle
   common/                # DTO, DatasetReader, LoadRunner, GenerateDatasetMain
@@ -101,7 +102,8 @@ postgrvsmongo/
 
 Два симметричных приложения с одинаковым HTTP-контрактом; отличается только хранилище. Общий код нагрузки — в `common`.  
 Сборка: **Gradle на Groovy** (`build.gradle` / `settings.gradle`).  
-UI: чистый HTML/JS (`ui/index.html`), на `/` у каждого приложения; запросы только same-origin (общий кросс-UI и CORS не нужны).
+UI: чистый HTML/JS (`ui/index.html`), на `/` у каждого приложения; запросы только same-origin (общий кросс-UI и CORS не нужны).  
+Grafana (`:3000`): дашборды по операции (Load, FIND_BY_TAG, …); datasource — Prometheus.
 
 ### 4.2. Схема взаимодействия
 
@@ -120,12 +122,17 @@ UI: чистый HTML/JS (`ui/index.html`), на `/` у каждого прил�
      PostgreSQL:5432                    MongoDB:27017
            ▲                                  ▲
            └────────── Prometheus:9090 ───────┘
-                опрос /actuator/prometheus (CPU/heap/пул)
+                опрос /actuator/prometheus
+                       │
+                       ▼
+                 Grafana:3000
+            дашборды по операции (Bench)
 ```
 
 Во время прогона: CPU/heap JVM из Prometheus (Micrometer); CPU/RAM контейнеров БД — `docker stats`.  
 Латентность операций считает HdrHistogram в `LoadRunner` (JSON ответа); те же итоги публикуются как  
-`bench_p95_ms` / `bench_ops_per_second` / … для графиков в Prometheus UI.
+`bench_p95_ms` / `bench_ops_per_second` / … → графики в Grafana (и Prometheus UI).  
+После прогонов оставь оба приложения запущенными, чтобы Gauge оставались на scrape.
 
 ### 4.3. Компоненты приложения
 
@@ -137,8 +144,9 @@ UI: чистый HTML/JS (`ui/index.html`), на `/` у каждого прил�
 | `ScenarioService` | Операции поиска / изменения / удаления / агрегации над выбранным кейсом |
 | `*BenchController` | `GET /api/ping`, `POST /api/data/load`, `POST /api/bench/run` |
 | `LoadRunner` | Прогрев → измерение, число потоков, HdrHistogram → JSON (`BenchRunResult`) |
-| `BenchMetricsExporter` | Итоги load/run → Micrometer MultiGauge → `/actuator/prometheus` |
+| `BenchMetricsExporter` | Итоги load/run → Micrometer MultiGauge → `/actuator/prometheus` → Grafana |
 | Actuator | `health`, `prometheus`, `metrics` |
+| Grafana | дашборды Load / FIND_* / UPDATE_TAG / AGG_* (папка Bench) |
 
 **Фиксированные пулы:** Hikari / Mongo `max = 32` (см. §2). Не менять между вариантами хранения без пометки в отчёте.
 
@@ -629,7 +637,6 @@ POST /api/data/load
 
 ## 12. Осознанно вне скоупа
 
-- Grafana / дашборды (достаточно Bench UI, UI Prometheus и таблиц в `results`).
 - Внешние генераторы нагрузки (JMeter, Gatling) — нагрузка внутри приложения.
 - Кластер, реплики, шардирование.
 - Объёмы 10M+ / «сотни миллионов» в одном дневном прогоне.
@@ -656,7 +663,8 @@ POST /api/data/load
 
 ## 14. Краткий чеклист готовности к докладу
 
-- [ ] Compose поднят (PG 17, Mongo 7), Prometheus видит оба приложения
+- [ ] Compose поднят (PG 17, Mongo 7, Prometheus, Grafana); Prometheus видит оба приложения
+- [ ] Grafana `:3000` — папка Bench, дашборды Load / FIND_* / UPDATE / AGG_*; после прогонов оба app up
 - [ ] Bench UI на `/` текущего app (8081 или 8082); заливка и прогон через UI или curl
 - [ ] Скрипт `generate-dataset` пишет файлы с полем `tags` (не `tagIds`); заливка Postgres и Mongo; сверка count + выборка по `id`
 - [ ] Индексы есть и используются на FIND_BY_TAG (A/B/C)

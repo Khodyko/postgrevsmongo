@@ -51,38 +51,30 @@ public class BenchMetricsExporter {
     public BenchMetricsExporter(MeterRegistry registry) {
         this.p50 = MultiGauge.builder("bench.p50.ms")
                 .description("p50 latency последнего прогона (мс), из LoadRunner/HdrHistogram")
-                .baseUnit("milliseconds")
                 .register(registry);
         this.p95 = MultiGauge.builder("bench.p95.ms")
                 .description("p95 latency последнего прогона (мс), из LoadRunner/HdrHistogram")
-                .baseUnit("milliseconds")
                 .register(registry);
         this.p99 = MultiGauge.builder("bench.p99.ms")
                 .description("p99 latency последнего прогона (мс), из LoadRunner/HdrHistogram")
-                .baseUnit("milliseconds")
                 .register(registry);
         this.opsPerSecond = MultiGauge.builder("bench.ops.per.second")
                 .description("Пропускная способность последнего прогона")
-                .baseUnit("operations")
                 .register(registry);
         this.errors = MultiGauge.builder("bench.errors")
                 .description("Число ошибок за окно измерения последнего прогона")
                 .register(registry);
         this.loadMillis = MultiGauge.builder("bench.load.ms")
                 .description("Время заливки данных (мс)")
-                .baseUnit("milliseconds")
                 .register(registry);
         this.indexBuildMillis = MultiGauge.builder("bench.index.build.ms")
                 .description("Время построения индексов (мс)")
-                .baseUnit("milliseconds")
                 .register(registry);
         this.dataBytes = MultiGauge.builder("bench.data.bytes")
                 .description("Размер данных на диске после заливки")
-                .baseUnit("bytes")
                 .register(registry);
         this.indexBytes = MultiGauge.builder("bench.index.bytes")
                 .description("Размер индексов на диске после заливки")
-                .baseUnit("bytes")
                 .register(registry);
     }
 

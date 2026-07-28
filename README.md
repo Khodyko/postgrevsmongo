@@ -16,7 +16,7 @@
 ## Быстрый старт
 
 ```bash
-# 1. Инфра (Postgres, Mongo, Prometheus)
+# 1. Инфра (Postgres, Mongo, Prometheus, Grafana)
 docker compose up -d
 
 # 2. Датасет — теги в products.jsonl должны быть текстовыми ("tags": [...]), не tagIds
@@ -80,8 +80,24 @@ Smoke только Postgres (нужен запущенный `:8081`):
 - Actuator Postgres: http://localhost:8081/actuator/prometheus  
 - Actuator Mongo: http://localhost:8082/actuator/prometheus  
 - Prometheus UI: http://localhost:9090  
+- Grafana: http://localhost:3000 (anon Viewer; admin/admin)  
 
-После серии прогонов (подожди ~5 с на scrape):
+После серии прогонов **оставь оба app запущенными**, иначе Gauge `bench_*` исчезнут со scrape. Подожди ~5 с.
+
+### Grafana (папка Bench)
+
+| Дашборд | URL |
+|---------|-----|
+| Load | http://localhost:3000/d/bench-load |
+| FIND_BY_TAG | http://localhost:3000/d/bench-find-by-tag |
+| FIND_BY_ID | http://localhost:3000/d/bench-find-by-id |
+| UPDATE_TAG | http://localhost:3000/d/bench-update-tag |
+| AGG_COUNT_BY_TAG | http://localhost:3000/d/bench-agg-count-by-tag |
+| AGG_TOP_TAGS | http://localhost:3000/d/bench-agg-top-tags |
+
+На каждом — серии по `storage_case` (PG_NORM, PG_JSON, MONGO, …). Переменные: `volume`, для run — ещё `concurrency`.
+
+Примеры PromQL (тот же datasource, что у Grafana):
 
 ```promql
 # p95 по вариантам (instant)
@@ -101,6 +117,7 @@ hikaricp_connections_pending{job="app-postgres"}
 ```
 
 Метрики `bench_*` живут в JVM до перезапуска; повтор с теми же labels перезаписывает значение.
+
 ## API
 
 Одинаковый контракт у обоих приложений; отличается набор `storageCase`.
