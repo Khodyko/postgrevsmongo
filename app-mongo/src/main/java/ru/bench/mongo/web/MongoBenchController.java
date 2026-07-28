@@ -17,6 +17,7 @@ import ru.bench.common.dto.DataLoadRequest;
 import ru.bench.common.dto.DataLoadResult;
 import ru.bench.common.dto.StorageCase;
 import ru.bench.common.load.LoadRunner;
+import ru.bench.common.metrics.BenchMetricsExporter;
 import ru.bench.mongo.load.MongoDataLoadService;
 import ru.bench.mongo.scenario.MongoScenarioService;
 
@@ -31,6 +32,7 @@ public class MongoBenchController {
     private final MongoScenarioService scenarioService;
     private final LoadRunner loadRunner;
     private final DatasetReader datasetReader;
+    private final BenchMetricsExporter metricsExporter;
 
     /**
      * Создаёт контроллер.
@@ -39,17 +41,20 @@ public class MongoBenchController {
      * @param scenarioService сценарии
      * @param loadRunner нагрузка
      * @param datasetReader читатель датасета
+     * @param metricsExporter экспорт в Prometheus
      */
     public MongoBenchController(
             MongoDataLoadService dataLoadService,
             MongoScenarioService scenarioService,
             LoadRunner loadRunner,
-            DatasetReader datasetReader
+            DatasetReader datasetReader,
+            BenchMetricsExporter metricsExporter
     ) {
         this.dataLoadService = dataLoadService;
         this.scenarioService = scenarioService;
         this.loadRunner = loadRunner;
         this.datasetReader = datasetReader;
+        this.metricsExporter = metricsExporter;
     }
 
     /**
@@ -69,7 +74,9 @@ public class MongoBenchController {
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Не удалось прочитать tags.jsonl", e);
         }
-        return dataLoadService.load(request);
+        DataLoadResult result = dataLoadService.load(request);
+        metricsExporter.recordLoad(result);
+        return result;
     }
 
     /**
@@ -97,7 +104,9 @@ public class MongoBenchController {
                 request.maxProductId(),
                 request.tagCount() > 0 ? request.tagCount() : 100_000
         );
-        return loadRunner.run(normalized, scenarioService::execute);
+        BenchRunResult result = loadRunner.run(normalized, scenarioService::execute);
+        metricsExporter.recordRun(normalized, result);
+        return result;
     }
 
     /**

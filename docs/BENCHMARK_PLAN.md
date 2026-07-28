@@ -123,9 +123,9 @@ UI: чистый HTML/JS (`ui/index.html`), на `/` у каждого прил�
                 опрос /actuator/prometheus (CPU/heap/пул)
 ```
 
-Запускай и нагружай приложения **по очереди**; UI каждого смотрит только в свой API.  
 Во время прогона: CPU/heap JVM из Prometheus (Micrometer); CPU/RAM контейнеров БД — `docker stats`.  
-Латентность операций (p50/p95/p99) — в JSON-ответе `/api/bench/run` (HdrHistogram в `LoadRunner`), не в Prometheus.
+Латентность операций считает HdrHistogram в `LoadRunner` (JSON ответа); те же итоги публикуются как  
+`bench_p95_ms` / `bench_ops_per_second` / … для графиков в Prometheus UI.
 
 ### 4.3. Компоненты приложения
 
@@ -137,6 +137,7 @@ UI: чистый HTML/JS (`ui/index.html`), на `/` у каждого прил�
 | `ScenarioService` | Операции поиска / изменения / удаления / агрегации над выбранным кейсом |
 | `*BenchController` | `GET /api/ping`, `POST /api/data/load`, `POST /api/bench/run` |
 | `LoadRunner` | Прогрев → измерение, число потоков, HdrHistogram → JSON (`BenchRunResult`) |
+| `BenchMetricsExporter` | Итоги load/run → Micrometer MultiGauge → `/actuator/prometheus` |
 | Actuator | `health`, `prometheus`, `metrics` |
 
 **Фиксированные пулы:** Hikari / Mongo `max = 32` (см. §2). Не менять между вариантами хранения без пометки в отчёте.
@@ -403,14 +404,17 @@ POST /api/data/load
 
 | Категория | Метрики | Как снимаем |
 |-----------|---------|-------------|
-| Задержка | p50, p95, p99, max | JSON `/api/bench/run` (`LoadRunner` + HdrHistogram) |
-| Пропускная способность | операций/с за окно измерения | то же (`opsPerSecond`) |
-| Ошибки | число ошибок за окно | то же (`errors`) |
+| Задержка | p50, p95, p99, max | JSON `/api/bench/run` + Prometheus `bench_p50_ms` / `bench_p95_ms` / `bench_p99_ms` |
+| Пропускная способность | операций/с | JSON + `bench_ops_per_second` |
+| Ошибки | число ошибок за окно | JSON + `bench_errors` |
 | **Процессор** | % CPU приложения и контейнера БД | Prometheus `process_cpu_usage` + `docker stats` |
 | **Память** | heap JVM; RSS контейнера БД | Prometheus `jvm_memory_used_bytes` + `docker stats` |
 | Пул соединений | active / pending / timeout | Prometheus `hikaricp_*` / Mongo pool |
-| Диск | данные и индексы отдельно | поля ответа `/api/data/load` |
-| Индексы | время `CREATE INDEX` / `createIndex` | `indexMillis` в ответе `/api/data/load` |
+| Диск | данные и индексы отдельно | JSON `/api/data/load` + `bench_data_bytes` / `bench_index_bytes` |
+| Индексы | время построения | JSON + `bench_index_build_ms` |
+
+Источник перцентилей — HdrHistogram в `LoadRunner`; `BenchMetricsExporter` публикует итог в Micrometer Gauge  
+с метками `storage_case`, `operation`, `concurrency`, `volume` (накопление по лестнице прогонов до рестарта JVM).
 
 Процессор и память — колонки отчёта на каждый прогон.
 

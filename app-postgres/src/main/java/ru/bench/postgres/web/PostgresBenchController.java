@@ -17,6 +17,7 @@ import ru.bench.common.dto.DataLoadRequest;
 import ru.bench.common.dto.DataLoadResult;
 import ru.bench.common.dto.StorageCase;
 import ru.bench.common.load.LoadRunner;
+import ru.bench.common.metrics.BenchMetricsExporter;
 import ru.bench.postgres.load.PostgresDataLoadService;
 import ru.bench.postgres.scenario.PostgresScenarioService;
 import ru.bench.postgres.scenario.TagDictionary;
@@ -33,6 +34,7 @@ public class PostgresBenchController {
     private final LoadRunner loadRunner;
     private final DatasetReader datasetReader;
     private final TagDictionary tagDictionary;
+    private final BenchMetricsExporter metricsExporter;
 
     /**
      * Создаёт контроллер.
@@ -42,19 +44,22 @@ public class PostgresBenchController {
      * @param loadRunner нагрузка
      * @param datasetReader читатель датасета
      * @param tagDictionary словарь тегов
+     * @param metricsExporter экспорт в Prometheus
      */
     public PostgresBenchController(
             PostgresDataLoadService dataLoadService,
             PostgresScenarioService scenarioService,
             LoadRunner loadRunner,
             DatasetReader datasetReader,
-            TagDictionary tagDictionary
+            TagDictionary tagDictionary,
+            BenchMetricsExporter metricsExporter
     ) {
         this.dataLoadService = dataLoadService;
         this.scenarioService = scenarioService;
         this.loadRunner = loadRunner;
         this.datasetReader = datasetReader;
         this.tagDictionary = tagDictionary;
+        this.metricsExporter = metricsExporter;
     }
 
     /**
@@ -75,7 +80,9 @@ public class PostgresBenchController {
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Не удалось прочитать tags.jsonl", e);
         }
-        return dataLoadService.load(request);
+        DataLoadResult result = dataLoadService.load(request);
+        metricsExporter.recordLoad(result);
+        return result;
     }
 
     /**
@@ -104,7 +111,9 @@ public class PostgresBenchController {
                 request.maxProductId(),
                 tagCount
         );
-        return loadRunner.run(normalized, scenarioService::execute);
+        BenchRunResult result = loadRunner.run(normalized, scenarioService::execute);
+        metricsExporter.recordRun(normalized, result);
+        return result;
     }
 
     /**

@@ -1,10 +1,12 @@
 package ru.bench.mongo.config;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import tools.jackson.databind.json.JsonMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import ru.bench.common.dataset.DatasetReader;
 import ru.bench.common.load.LoadRunner;
+import ru.bench.common.metrics.BenchMetricsExporter;
 
 /**
  * Общие бины приложения Mongo.
@@ -31,5 +33,16 @@ public class MongoBenchConfig {
     @Bean
     public LoadRunner loadRunner() {
         return new LoadRunner();
+    }
+
+    /**
+     * Экспорт итогов прогона/заливки в Prometheus.
+     *
+     * @param registry Micrometer
+     * @return экспортёр
+     */
+    @Bean
+    public BenchMetricsExporter benchMetricsExporter(MeterRegistry registry) {
+        return new BenchMetricsExporter(registry);
     }
 }

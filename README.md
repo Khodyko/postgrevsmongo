@@ -69,24 +69,38 @@ Smoke только Postgres (нужен запущенный `:8081`):
 
 | Что | Откуда |
 |-----|--------|
-| p50 / p95 / p99 / opsPerSecond | JSON-ответ `/api/bench/run` (HdrHistogram в `LoadRunner`) |
-| время заливки / индексов / диск | JSON-ответ `/api/data/load` |
-| CPU / heap JVM, Hikari | Prometheus ← `/actuator/prometheus` |
+| p50 / p95 / p99 / opsPerSecond | JSON `/api/bench/run` **и** Prometheus `bench_*` (после прогона) |
+| время заливки / индексов / диск | JSON `/api/data/load` **и** Prometheus `bench_load_*` / `bench_index_*` / `bench_data_*` |
+| CPU / heap JVM, Hikari | Prometheus (live во время прогона) |
 | CPU / RAM контейнера БД | `docker stats` |
+
+Итоги считает `LoadRunner` (HdrHistogram); `BenchMetricsExporter` кладёт их в Micrometer Gauge с метками  
+`storage_case`, `operation`, `concurrency`, `volume` (например `10K`).
 
 - Actuator Postgres: http://localhost:8081/actuator/prometheus  
 - Actuator Mongo: http://localhost:8082/actuator/prometheus  
 - Prometheus UI: http://localhost:9090  
 
-Полезные запросы в Prometheus (job `app-postgres` / `app-mongo`):
+После серии прогонов (подожди ~5 с на scrape):
 
 ```promql
+# p95 по вариантам (instant)
+bench_p95_ms{operation="FIND_BY_TAG", volume="10K", concurrency="8"}
+
+bench_ops_per_second{operation="FIND_BY_TAG", volume="10K"}
+
+bench_load_ms
+bench_index_build_ms
+bench_data_bytes
+
+# ресурсы во время прогона
 process_cpu_usage{job="app-postgres"}
 jvm_memory_used_bytes{job="app-postgres", area="heap"}
 hikaricp_connections_active{job="app-postgres"}
 hikaricp_connections_pending{job="app-postgres"}
 ```
 
+Метрики `bench_*` живут в JVM до перезапуска; повтор с теми же labels перезаписывает значение.
 ## API
 
 Одинаковый контракт у обоих приложений; отличается набор `storageCase`.
